@@ -61,6 +61,7 @@ address_t KNX_addr;        // KNX Address converter variable
 
 float last_temp;
 float last_hum;
+int last_dimm;
 uint8_t toggle_inhibit;
 
 typedef struct __device_parameters
@@ -114,6 +115,7 @@ device_parameters_t device_param[] = {
   { KNX_SLOT3 , false, false, KNX_Empty },
   { KNX_SLOT4 , false, false, KNX_Empty },
   { KNX_SLOT5 , false, false, KNX_Empty },
+  { KNX_DIMMER , false, false, KNX_Empty }, // device_param[31] = dimmer 0-100
   { KNX_Empty, false, false, KNX_Empty}
 };
 
@@ -149,6 +151,7 @@ const char * device_param_ga[] = {
   D_KNX_TX_SLOT   " 3",
   D_KNX_TX_SLOT   " 4",
   D_KNX_TX_SLOT   " 5",
+  D_KNX_DIMMER        ,
   nullptr
 };
 
@@ -184,6 +187,7 @@ const char *device_param_cb[] = {
   D_KNX_RX_SLOT   " 3",
   D_KNX_RX_SLOT   " 4",
   D_KNX_RX_SLOT   " 5",
+  D_KNX_DIMMER,
   nullptr
 };
 
@@ -518,6 +522,8 @@ void KNX_INIT(void)
   device_param[KNX_SLOT5-1].show = true;
 #endif
 
+  device_param[KNX_DIMMER-1].show = true;
+
   // Delete from KNX settings all configuration is not anymore related to this device
   if (KNX_CONFIG_NOT_MATCH()) {
     Settings.knx_GA_registered = 0;
@@ -582,6 +588,13 @@ void KNX_CB_Action(message_t const &msg, void *arg)
             toggle_inhibit = TOGGLE_INHIBIT_TIME;
           }
         }
+      }
+      else if (chan->type == KNX_DIMMER) // Dimmer
+      {
+          char command[25];
+          double dimm = (double)100 / (double)255 * knx.data_to_1byte_uint(msg.data);
+          snprintf_P(command, sizeof(command), PSTR("Dimmer %d"), (int)dimm);
+          ExecuteCommand(command, SRC_KNX);
       }
 #ifdef USE_RULES
       else if ((chan->type >= KNX_SLOT1) && (chan->type <= KNX_SLOT5)) // KNX RX SLOTs (write command)
