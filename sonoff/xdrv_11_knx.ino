@@ -61,8 +61,9 @@ address_t KNX_addr;        // KNX Address converter variable
 
 float last_temp;
 float last_hum;
-int last_dimm;
+double last_dimm;
 uint8_t toggle_inhibit;
+color_t last_color;
 
 typedef struct __device_parameters
 {
@@ -116,6 +117,7 @@ device_parameters_t device_param[] = {
   { KNX_SLOT4 , false, false, KNX_Empty },
   { KNX_SLOT5 , false, false, KNX_Empty },
   { KNX_DIMMER , false, false, KNX_Empty }, // device_param[31] = dimmer 0-100
+  { KNX_RGB , false, false, KNX_Empty }, // device_param[32] = RGB 3x(0..255)
   { KNX_Empty, false, false, KNX_Empty}
 };
 
@@ -152,6 +154,7 @@ const char * device_param_ga[] = {
   D_KNX_TX_SLOT   " 4",
   D_KNX_TX_SLOT   " 5",
   D_KNX_DIMMER        ,
+  D_KNX_RGB           ,
   nullptr
 };
 
@@ -188,6 +191,7 @@ const char *device_param_cb[] = {
   D_KNX_RX_SLOT   " 4",
   D_KNX_RX_SLOT   " 5",
   D_KNX_DIMMER,
+  D_KNX_RGB,
   nullptr
 };
 
@@ -523,6 +527,7 @@ void KNX_INIT(void)
 #endif
 
   device_param[KNX_DIMMER-1].show = true;
+  device_param[KNX_RGB-1].show = true;
 
   // Delete from KNX settings all configuration is not anymore related to this device
   if (KNX_CONFIG_NOT_MATCH()) {
@@ -592,10 +597,20 @@ void KNX_CB_Action(message_t const &msg, void *arg)
       else if (chan->type == KNX_DIMMER) // Dimmer
       {
           char command[25];
-          double dimm = (double)100 / (double)255 * knx.data_to_1byte_uint(msg.data);
+          last_dimm = knx.data_to_1byte_uint(msg.data);
+          double dimm = (double)100 / (double)255 * last_dimm;
           snprintf_P(command, sizeof(command), PSTR("Dimmer %d"), (int)dimm);
           ExecuteCommand(command, SRC_KNX);
       }
+      else if (chan->type == KNX_RGB)
+      {
+          last_color = knx.data_to_3byte_color(msg.data);
+          char command[25];
+          snprintf_P(command, sizeof(command), PSTR("Color %d,%d,%d"), last_color.red, last_color.green, last_color.blue);
+          ExecuteCommand(command, SRC_KNX);
+          //AddLog_P2(LOG_LEVEL_INFO, PSTR("RGB : %d"), color.red);
+      } 
+
 #ifdef USE_RULES
       else if ((chan->type >= KNX_SLOT1) && (chan->type <= KNX_SLOT5)) // KNX RX SLOTs (write command)
       {
@@ -642,6 +657,22 @@ void KNX_CB_Action(message_t const &msg, void *arg)
           knx.answer_2byte_float(msg.received_on, last_hum);
         }
       }
+      else if (chan->type == KNX_DIMMER) // Reply Dimmer
+      {
+        knx.answer_1byte_uint(msg.received_on, last_dimm);
+        if (Settings.flag.knx_enable_enhancement) {
+          knx.answer_1byte_uint(msg.received_on, last_dimm);
+          knx.answer_1byte_uint(msg.received_on, last_dimm);
+        }
+      }
+      else if (chan->type == KNX_RGB) // Reply RGB
+      {
+        knx.answer_3byte_color(msg.received_on, last_color);
+        if (Settings.flag.knx_enable_enhancement) {
+          knx.answer_3byte_color(msg.received_on, last_color);
+          knx.answer_3byte_color(msg.received_on, last_color);
+        }
+      }
 #ifdef USE_RULES
       else if ((chan->type >= KNX_SLOT1) && (chan->type <= KNX_SLOT5)) // KNX RX SLOTs (read command)
       {
@@ -670,11 +701,20 @@ void KnxUpdatePowerState(uint8_t device, power_t state)
   uint8_t i = KNX_GA_Search(device);
   while ( i != KNX_Empty ) {
     KNX_addr.value = Settings.knx_GA_addr[i];
-    knx.write_1bit(KNX_addr, device_param[device -1].last_state);
-    if (Settings.flag.knx_enable_enhancement) {
+/*
+    if(i == KNX_DIMMER) {
       knx.write_1bit(KNX_addr, device_param[device -1].last_state);
+      if (Settings.flag.knx_enable_enhancement) {
+        knx.write_1bit(KNX_addr, device_param[device -1].last_state);
+        knx.write_1bit(KNX_addr, device_param[device -1].last_state);
+      }
+    } else { */
       knx.write_1bit(KNX_addr, device_param[device -1].last_state);
-    }
+      if (Settings.flag.knx_enable_enhancement) {
+        knx.write_1bit(KNX_addr, device_param[device -1].last_state);
+        knx.write_1bit(KNX_addr, device_param[device -1].last_state);
+      }
+ //   }
 
     AddLog_P2(LOG_LEVEL_INFO, PSTR(D_LOG_KNX "%s = %d " D_SENT_TO " %d.%d.%d"),
      device_param_ga[device -1], device_param[device -1].last_state,
